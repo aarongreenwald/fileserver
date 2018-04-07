@@ -1,7 +1,7 @@
 {
-  "name": "temp",
+  "name": "slow-http-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "A simple, not-at-all-fast http server for serving static files and browsing directories.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
