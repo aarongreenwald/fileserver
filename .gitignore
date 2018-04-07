@@ -1,0 +1,6 @@
+node_modules
+dist
+bundle.js
+npm-debug.log
+npm-error.log
+temp_files
