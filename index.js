@@ -7,44 +7,53 @@ const uuid = require('uuid')
 
 const CONTENT_DIRECTORY = process.env.CONTENT_DIRECTORY || './'
 
+fs.mkdir('./temporary_files', err => {});
+
 app.set('view engine', 'ejs');
 
-app.get('/bundle.js', (req, res) => {
-  res.sendFile('./views/bundle.js', {root: __dirname})
-})
+app.get('/bundle.js', (req, res) => res.sendFile('./views/bundle.js', {root: __dirname}));
 
-app.get('/favicon.ico', (req, res) => res.send(null))
-
-const replaceSpaces = path => path.split('%20').join('\ ')
+app.get('/favicon.ico', (req, res) => res.send(null));
 
 app.use((req, res, next) => {
   const path = replaceSpaces(`./${req.path}`)
   const fullPath = `${CONTENT_DIRECTORY}/${path}`
   const {view, download} = req.query
 
-  fs.stat(fullPath, (err, stat) => {
-    if (err) {
-      console.error(err)
-      res.status(500).send(err)
-    }
-    const isRoot = !stat
+  stat(fullPath).then(data => {
+    const isRoot = !data
+    const isDirectory = isRoot || data.isDirectory();
 
-    if (isRoot || stat.isDirectory()) {
-      if (download) {
-        zipAndReturn(req, res, fullPath, path)
-      } else {
-        showDirectory(req, res, fullPath, path)
-      }
-      
+    if (isDirectory) {
+      handleDirectory({res, fullPath, path, download});
     } else {
       res.setHeader("content-type", view ? mimeType(path) : 'application/file');
       fs.createReadStream(fullPath).pipe(res);
     }
-    
-  
    
   })
+  .catch(ex => {
+    console.error(ex);
+    res.status(404).send(`Not found: ${path}`);
+  })
 })
+
+
+const stat = path => new Promise((resolve, reject) => {
+  fs.stat(path, (err, result) => {
+    if (err) reject(err)
+
+    resolve(result)
+  })
+})
+
+const handleDirectory = ({res, fullPath, path, download}) => {
+  if (download) {
+    zipAndReturn(res, fullPath, path)
+  } else {
+    showDirectory(res, fullPath, path)
+  }
+}
 
 const mimeType = path => {
   const filename = path.split('/').pop()
@@ -56,11 +65,13 @@ const mimeType = path => {
     default:
       return 'text/plain';
   }
-}
+};
 
-const cleanPath = path => path.split('/').filter(x => x).join('/')
+const replaceSpaces = path => path.split('%20').join('\ ');
 
-const zipAndReturn = (req, res, fullPath, path) => {
+const cleanPath = path => path.split('/').filter(x => x).join('/');
+
+const zipAndReturn = (res, fullPath, path) => {
   path = cleanPath(path)
   const name = path.split('/').pop()
   const id = uuid()
@@ -70,30 +81,37 @@ const zipAndReturn = (req, res, fullPath, path) => {
   })
 }
 
-const showDirectory = (req, res, fullPath, path) => {
-    fs.readdir(fullPath, (err, data) => {
-              if (err) {
-                res.status(500).send(err)
-              } else {
-                const promises = data.map(name => getStats(name, fullPath))
-                Promise.all(promises)
-                  .then(stats => {
-                    res.render('dir', {
-                      breadcrumbs: buildBreadcrums(path),
-                      directory: cleanPath(path),
-                      items: stats
-                    });
+const readdir = dir => new Promise((resolve, reject) => {
+  fs.readdir(dir, (err, result) => {
+    if (err) reject(err)
 
-                  })
-                  .catch(ex => {
-                    console.error(ex)
-                    res.status(500).send(ex)
-                  })
-              }
-            })
+    resolve(result)
+  })
+})
+
+const showDirectory = (res, fullPath, path) => {
+  return readdir(fullPath).then(contents => {
+    const promises = contents.map(name => getStats(name, fullPath))
+    return Promise.all(promises).then(stats => {
+      res.render('dir', {
+        breadcrumbs: buildBreadcrumbs(path),
+        directory: cleanPath(path),
+        items: stats
+      });
+    });
+  }).catch(ex => {
+    if (ex.code === 'ENOENT') {
+      console.error('fff', ex.code)
+      res.status(404).send(`Directory ${path} not found.`)
+    } else {
+      res.status(500).send(ex)
+    }
+    
+  })
+  
 }
 
-const buildBreadcrums = path => {
+const buildBreadcrumbs = path => {
   path = cleanPath(path)
   
   return path.split('/').reduce((acc, name, i) => {
